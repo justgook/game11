@@ -184,14 +184,9 @@ function buildLevelFromData(data) {
   }
 
   // Place pickups
-  for (const ap of data.ammoPickups) {
-    pickups.push({ x: ap.x * T + T / 2, y: ap.y * T + T / 2, type: 'ammo', active: true });
-    sT(ap.x, ap.y, TF);
-  }
-
-  for (const hp of data.healthPickups) {
-    pickups.push({ x: hp.x * T + T / 2, y: hp.y * T + T / 2, type: 'health', active: true });
-    sT(hp.x, hp.y, TF);
+  for (const p of data.pickups || []) {
+    pickups.push({ x: p.x * T + T / 2, y: p.y * T + T / 2, type: p.type, active: true });
+    sT(p.x, p.y, TF);
   }
 
   totE = enemies.length;
