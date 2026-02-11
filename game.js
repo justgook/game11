@@ -326,7 +326,8 @@ const enemies = [];
 let particles = [], gt = 0, showMM = false, curRoom = null, kills = 0, totE = 0;
 let gOver = false, gWon = false, shake = 0, shX = 0, shY = 0, mFlash = { a: false, x: 0, y: 0, t: 0 };
 function spP(x, y, n, r, g, b, s, l) { for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, sp = (Math.random() * .7 + .3) * s; particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, l: l * (.5 + Math.random() * .5), ml: l, r, g, b, sz: 2 + Math.random() * 3 }); } }
-function fRoom(wx, wy) { const tx = Math.floor(wx / T), ty = Math.floor(wy / T); for (const r of rooms) if (tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) return r; return null; }
+function fRoom(wx, wy) { const tx = Math.floor(wx / T), ty = Math.floor(wy / T); for (const r of rooms) if (tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) return r; for (const c of corrs) { if (Math.abs(c.x2 - c.x1) > Math.abs(c.y2 - c.y1)) { if (ty === c.y1 || ty === c.y1 + 1) if (tx >= Math.min(c.x1, c.x2) - 1 && tx <= Math.max(c.x1, c.x2) + 1) return { x: Math.min(c.x1, c.x2) - 1, y: c.y1, w: Math.abs(c.x2 - c.x1) + 3, h: 2, n: 'Corridor' }; } else { if (tx === c.x1 || tx === c.x1 + 1) if (ty >= Math.min(c.y1, c.y2) - 1 && ty <= Math.max(c.y1, c.y2) + 1) return { x: c.x1, y: Math.min(c.y1, c.y2) - 1, w: 2, h: Math.abs(c.y2 - c.y1) + 3, n: 'Corridor' }; } } return null; }
+function inCorr(wx, wy) { const tx = Math.floor(wx / T), ty = Math.floor(wy / T); for (const c of corrs) { if (Math.abs(c.x2 - c.x1) > Math.abs(c.y2 - c.y1)) { if (ty === c.y1 || ty === c.y1 + 1) if (tx >= Math.min(c.x1, c.x2) - 1 && tx <= Math.max(c.x1, c.x2) + 1) return true; } else { if (tx === c.x1 || tx === c.x1 + 1) if (ty >= Math.min(c.y1, c.y2) - 1 && ty <= Math.max(c.y1, c.y2) + 1) return true; } } return false; }
 function a2d(a) { const n = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2); if (n > Math.PI * .25 && n <= Math.PI * .75) return 0; if (n > Math.PI * .75 && n <= Math.PI * 1.25) return 1; if (n > Math.PI * 1.25 && n <= Math.PI * 1.75) return 3; return 2; }
 
 // INPUT
@@ -445,7 +446,7 @@ function update(dt) {
     }
   }
   for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .95; p.vy *= .95; p.l -= dt; if (p.l <= 0) particles.splice(i, 1); }
-  curRoom = fRoom(P.x, P.y); showMM = curRoom !== null;
+  curRoom = fRoom(P.x, P.y); showMM = curRoom !== null || inCorr(P.x, P.y);
 
   // Check win condition
   if (kills >= totE && !isLevelComplete) {
