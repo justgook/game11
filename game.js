@@ -1,5 +1,8 @@
 "use strict";
 
+import { playerAnimConfig } from './player_anim_config.js';
+import { getPlayerSpriteGrid, getPlayerAnimUV, getAnimFrameCount, getAnimNameFromState } from './load.js';
+
 // Level Management
 let currentLevelData = null;
 let currentLevelUrl = 'levels/level1.json';
@@ -268,16 +271,26 @@ function beginP(p, l, h) { curProg = p; curLoc = l; curHUD = h; vc = 0; curTex =
 function endP() { flush(); }
 
 // TEXTURES
-const tex = {}; let texLoaded = 0; const TOTAL_TEX = 6;
+const tex = {}; const texImages = {}; let texLoaded = 0; const TOTAL_TEX = 6;
+let playerSpriteGrid = { cols: 13, rows: 56 }; // Default grid for player sprite
+
 function loadTex(name, src) {
   const t = gl.createTexture(); const img = new Image(); img.onload = () => {
     gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    tex[name] = t; texLoaded++;
+    tex[name] = t;
+    texImages[name] = img;
+
+    // Calculate player sprite grid when player texture loads
+    if (name === 'player') {
+      playerSpriteGrid = getPlayerSpriteGrid(playerAnimConfig, img);
+    }
+
+    texLoaded++;
   }; img.src = src;
 }
-loadTex('tileset', 'assets/tileset.png'); loadTex('player', 'assets/player.png');
+loadTex('tileset', 'assets/tileset.png'); loadTex('player', 'assets/player2.png');
 loadTex('enemy_grunt', 'assets/enemy_grunt.png'); loadTex('enemy_heavy', 'assets/enemy_heavy.png');
 loadTex('enemy_scout', 'assets/enemy_scout.png'); loadTex('items', 'assets/items.png');
 
@@ -347,7 +360,39 @@ function update(dt) {
   const nx = P.x + dx * spd * dt; if (!rC(nx - hw, P.y - hw, P.w, P.h)) P.x = nx;
   const ny = P.y + dy * spd * dt; if (!rC(P.x - hw, ny - hw, P.w, P.h)) P.y = ny;
   if (P.inv > 0) P.inv -= dt; if (P.ft > 0) P.ft -= dt;
-  P.at += dt; if (dx || dy) { P.st = 'walk'; if (P.at > .15) { P.at = 0; P.af = (P.af + 1) % 4; } } else { P.st = 'idle'; P.af = 0; }
+
+  // Animation state management
+  const prevSt = P.st;
+  P.at += dt;
+
+  // Determine state priority: dash > shoot > melee > walk > idle
+  if (P.dt > 0) {
+    P.st = 'dash';
+  } else if (P.ft > 0 && P.wpn !== 'melee' && mouse.d) {
+    P.st = 'shoot';
+  } else if (P.ms > 0) {
+    P.st = 'slash';
+  } else if (dx || dy) {
+    P.st = 'walk';
+  } else {
+    P.st = 'idle';
+  }
+
+  // Reset animation frame when state changes
+  if (P.st !== prevSt) {
+    P.af = 0;
+    P.at = 0;
+  }
+
+  // Update animation frame based on state
+  const animName = getAnimNameFromState(P.st);
+  const frameCount = getAnimFrameCount(playerAnimConfig, animName, P.dir);
+  // const animSpeed = P.st === 'dash' ? 0.08 : P.st === 'shoot' ? 0.1 : P.st === 'slash' ? 0.06 : P.st === 'walk' ? 0.15 : 0.2;
+  const animSpeed = playerAnimConfig.animSpeed[P.st]
+  if (P.at > animSpeed) {
+    P.at = 0;
+    P.af = (P.af + 1) % frameCount;
+  }
 
   if (mouse.d && P.ft <= 0) {
     if (P.wpn === 'melee') {
@@ -499,10 +544,19 @@ function render() {
 
   // Player
   if (P.alive) {
-    setTx(tex.player); let col = 0;
-    if (P.st === 'walk') col = 1 + P.af; else if (P.st === 'slash') col = 5 + Math.min(2, Math.floor((1 - P.ms / .3) * 3)); else if (P.st === 'shoot') col = 8;
-    const uv = cUV(col, P.dir); const fl = P.inv > 0 && Math.sin(gt * 30) > 0; pTQ(P.x - 16, P.y - 16, 32, 32, uv.u1, uv.v1, uv.u2, uv.v2, fl ? 2 : 1, fl ? 2 : 1, fl ? 2 : 1, 1);
-    if (P.wpn === 'melee' && P.ms > 0) { setTx(null); const sa = P.angle + Math.sin(P.ms * 20) * .8; pQ(P.x + Math.cos(sa) * 26 - 4, P.y + Math.sin(sa) * 26 - 4, 8, 8, .8, .85, .95, .8); }
+    setTx(tex.player);
+
+    // Get animation name from player state and use current animation frame
+    const animName = getAnimNameFromState(P.st);
+    const uv = getPlayerAnimUV(playerAnimConfig, animName, P.dir, P.af, playerSpriteGrid);
+    const fl = P.inv > 0 && Math.sin(gt * 30) > 0;
+    pTQ(P.x - 16, P.y - 16, 32, 32, uv.u1, uv.v1, uv.u2, uv.v2, fl ? 2 : 1, fl ? 2 : 1, fl ? 2 : 1, 1);
+
+    if (P.wpn === 'melee' && P.ms > 0) {
+      setTx(null);
+      const sa = P.angle + Math.sin(P.ms * 20) * .8;
+      pQ(P.x + Math.cos(sa) * 26 - 4, P.y + Math.sin(sa) * 26 - 4, 8, 8, .8, .85, .95, .8);
+    }
   }
   endP();
 
@@ -570,3 +624,4 @@ function loop(now) { const dt = Math.min((now - lastT) / 1000, .05); lastT = now
 loadLevel('levels/level1.json').then(() => {
   requestAnimationFrame(loop);
 });
+
