@@ -302,96 +302,11 @@ loadTex('atlas', 'assets/the_atlas.png'); loadTex('player', 'assets/player2.png'
 loadTex('enemy_grunt', 'assets/enemy_grunt.png'); loadTex('enemy_heavy', 'assets/enemy_heavy.png');
 loadTex('enemy_scout', 'assets/enemy_scout.png'); loadTex('items', 'assets/items.png');
 
-function tUV(c, r) { return { u1: c / 8, v1: r / 4, u2: (c + 1) / 8, v2: (r + 1) / 4 }; }
 function cUV(c, r) { return { u1: c / 9, v1: r / 4, u2: (c + 1) / 9, v2: (r + 1) / 4 }; }
 function iUV(c, r) { return { u1: c / 4, v1: r / 2, u2: (c + 1) / 4, v2: (r + 1) / 2 }; }
 
-// Tile UV from precomputed autotile coordinates
-function getTileUV(tileType, tx, ty) {
-  const cols = 32, rows = 32; // Hardcoded atlas dimensions
 
-  // Try lookup from tileAtlasMap first (O(1))
-  if (tileAtlasMap && tileAtlasMap[ty] && tileAtlasMap[ty][tx]) {
-    const { col, row } = tileAtlasMap[ty][tx];
-    return {
-      u1: col / cols,
-      v1: row / rows,
-      u2: (col + 1) / cols,
-      v2: (row + 1) / rows
-    };
-  }
 
-  // Fallback: linear search in autotileCoords (should not happen if prepareTiles was called)
-  for (const [x, y, col, row] of autotileCoords) {
-    if (x === tx && y === ty) {
-      return {
-        u1: col / cols,
-        v1: row / rows,
-        u2: (col + 1) / cols,
-        v2: (row + 1) / rows
-      };
-    }
-  }
-
-  // Emergency fallback: hardcoded mapping based on tileType
-  let col = 0, row = 0;
-  switch (tileType) {
-    case 1: col = 1; row = 1; break;  // Wall
-    case 2: col = 2; row = 2; break;  // Floor
-    case 3: col = 2; row = 2; break;  // Door (same as floor)
-    case 4: col = 7; row = 0; break;  // Obstacle
-    case 5: col = 8; row = 0; break;  // Crate
-    case 6: col = 9; row = 0; break;  // Barrel
-    default: col = 0; row = 0;
-  }
-  return {
-    u1: col / cols,
-    v1: row / rows,
-    u2: (col + 1) / cols,
-    v2: (row + 1) / rows
-  };
-}
-
-// Calculate 2x2 corner bitmask for autotiling (Godot-style)
-// Bits: 0=top-left, 1=top-right, 2=bottom-right, 3=bottom-left
-// A bit is set (1) if all 3 cells around that corner are walls
-function getCornerBitmask(tx, ty, predicate = null) {
-  let mask = 0;
-
-  // Helper to check if cell is wall
-  const isWall = (x, y) => gT(x, y) === TW;
-  const check = predicate || isWall;
-
-  // Top-left corner: check (tx-1,ty-1), (tx,ty-1), (tx-1,ty)
-  if (check(tx - 1, ty - 1) && check(tx, ty - 1) && check(tx - 1, ty)) mask |= 1 << 0;
-
-  // Top-right corner: check (tx,ty-1), (tx+1,ty-1), (tx+1,ty)
-  if (check(tx, ty - 1) && check(tx + 1, ty - 1) && check(tx + 1, ty)) mask |= 1 << 1;
-
-  // Bottom-right corner: check (tx+1,ty), (tx+1,ty+1), (tx,ty+1)
-  if (check(tx + 1, ty) && check(tx + 1, ty + 1) && check(tx, ty + 1)) mask |= 1 << 2;
-
-  // Bottom-left corner: check (tx-1,ty), (tx-1,ty+1), (tx,ty+1)
-  if (check(tx - 1, ty) && check(tx - 1, ty + 1) && check(tx, ty + 1)) mask |= 1 << 3;
-
-  return mask;
-}
-
-// Calculate side bitmask for autotiling (simple 4-direction)
-// Bits: 0=north, 1=east, 2=south, 3=west
-// A bit is set (1) if neighbor in that direction is wall
-function getSideBitmask(tx, ty, predicate = null) {
-  let mask = 0;
-  const isWall = (x, y) => gT(x, y) === TW;
-  const check = predicate || isWall;
-
-  if (check(tx, ty - 1)) mask |= 1 << 0; // north
-  if (check(tx + 1, ty)) mask |= 1 << 1; // east
-  if (check(tx, ty + 1)) mask |= 1 << 2; // south
-  if (check(tx - 1, ty)) mask |= 1 << 3; // west
-
-  return mask;
-}
 
 const TileTypes = {
   WALL: 1,
@@ -415,15 +330,19 @@ function autotile(x, y, getTeleType) {
   switch (getTeleType(x, y)) {
     case TileTypes.WALL:
       col = 8; row = 1;
-      // if (isWall(x + 1, y) && isWall(x - 1, y) && isFloor(x, y + 1)) return [[x, y, 1, 1], [x, y - 1, 1, 1]]
-      if (isWall(x, y + 1) && isWall(x, y - 1) && isFloor(x - 1, y)) return [[x, y, 2, 10]]
-      // if (isWall(x + 1, y) && isWall(x - 1, y) && isFloor(x, y - 1)) return [[x, y - 1, 8, 2]]
-      if (isWall(x, y + 1) && isWall(x, y - 1) && isFloor(x + 1, y)) return [[x, y, 3, 10]]
+      if (isWall(x + 1, y) && isWall(x - 1, y) && isFloor(x, y + 1)) return [[x, y, 2, 1], [x, y - 1, 1, 0]]
+      if (isWall(x, y + 1) && isWall(x, y - 1) && isFloor(x - 1, y)) return [null, null, [x - 1, y, 3, 10]]
+      if (isWall(x + 1, y) && isWall(x - 1, y) && isFloor(x, y - 1)) return [[x, y, 2, 1], [x, y - 1, 1, 0]]
+      if (isWall(x, y + 1) && isWall(x, y - 1) && isFloor(x + 1, y)) return [null, null, [x + 1, y, 2, 10]]
+      if (isWall(x, y + 1) && isWall(x - 1, y) && isFloor(x + 1, y)) return [null, [x, y, 2, 1], [x, y - 1, 1, 0], [x + 1, y, 2, 10]]
+      if (isWall(x, y + 1) && isWall(x + 1, y) && isFloor(x - 1, y)) return [null, [x, y, 2, 1], [x, y - 1, 1, 0], [x - 1, y, 3, 10]]
+      if (isWall(x - 1, y) && isWall(x, y + 1)) return [null, null, [x - 1, y, 3, 10]]
+      if (isWall(x + 1, y) && isWall(x, y + 1)) return [null, null, [x + 1, y, 2, 10]]
+      return [[x, y, 8, 1]]
 
-      break;  // Wall
-    case 2: col = 1; row = 4; break;  // Floor
+    case 2: return [[x, y, 1, 4]];   // Floor
     case 3: col = 2; row = 2; break;  // Door (same as floor)
-    case 4: col = 7; row = 0; break;  // Obstacle
+    case 4: return [[x, y, 1, 4], [x, y, 18, 26], [x, y - 1, 18, 25]];  // Obstacle
     case 5: col = 8; row = 0; break;  // Crate
     case 6: col = 9; row = 0; break;  // Barrel
     default: col = 0; row = 0;
@@ -433,38 +352,30 @@ function autotile(x, y, getTeleType) {
 
 function prepareTiles(levelWidth, levelHeight, tileData) {
   const results = [];
-  // Initialize 2D lookup map
-  tileAtlasMap = new Array(levelHeight);
-  for (let y = 0; y < levelHeight; y++) {
-    tileAtlasMap[y] = new Array(levelWidth);
-  }
 
   function getTeleType(x, y) {
     const idx = y * levelWidth + x;
     return tileData[idx];
-
   }
   for (let y = 0; y < levelHeight; y++) {
     for (let x = 0; x < levelWidth; x++) {
       const idx = y * levelWidth + x;
       const tileType = tileData[idx];
       if (tileType === 0) continue;
-      const tiles = autotile(x, y, getTeleType);
-      results.push(...tiles);
-      // Store first tile in lookup map (for now; later we might need multiple layers)
-      if (tiles.length > 0) {
-        const [tileX, tileY, col, row] = tiles[0];
-        tileAtlasMap[tileY][tileX] = { col, row };
-      }
+      autotile(x, y, getTeleType).forEach((x, i) => {
+        if (!x) return
+        if (!results[i]) results[i] = []
+        results[i].push(x);
+      })
     }
   }
-  return results;
+
+  return results
 }
 
 // LEVEL
 let T = TILE_SIZE, LW = 60, LH = 45, ld = new Uint8Array(LW * LH);
-let autotileCoords = []; // Array of [x, y, col, row] tuples
-let tileAtlasMap = null; // 2D array for O(1) lookup: tileAtlasMap[y][x] = {col, row}
+let autotileCoords = []; // Array of tile data: either [x, y, col, row] or [null, [x, y, col, row]] for layer 1
 
 const TW = 1, TF = 2, TD = 3, TO = 4, TC = 5, TB = 6, TSP = 7, TSE = 8, TA = 9, TH = 10;
 function sT(x, y, v) { if (x >= 0 && x < LW && y >= 0 && y < LH) ld[y * LW + x] = v; }
@@ -665,27 +576,40 @@ function update(dt) {
 function render() {
   if (texLoaded < TOTAL_TEX) { gl.clearColor(.05, .04, .06, 1); gl.clear(gl.COLOR_BUFFER_BIT); return; }
   gl.clearColor(.03, .02, .04, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  const hW = (canvas.width / 2) / cam.scale, hH = (canvas.height / 2) / cam.scale;
-  const mnX = Math.max(0, Math.floor((cam.x - hW) / T) - 1), mnY = Math.max(0, Math.floor((cam.y - hH) / T) - 1);
-  const mxX = Math.min(LW - 1, Math.ceil((cam.x + hW) / T) + 1), mxY = Math.min(LH - 1, Math.ceil((cam.y + hH) / T) + 1);
 
   beginP(prog, loc, false);
   // Tiles
   setTx(tex.atlas);
-  for (let ty = mnY; ty <= mxY; ty++)for (let tx = mnX; tx <= mxX; tx++) {
-    const t = gT(tx, ty); if (!t) continue;
+  const cols = 32, rows = 32; //TODO: remove Hardcoded atlas dimensions
+  for (const layer of autotileCoords) {
+    for (const tile of layer) {
+      const [tx, ty, col, row] = tile
+      const t = gT(tx, ty); if (!t) continue;
+      const tint = t === TD ? .85 : 1;
+      const uv = {
+        u1: col / cols,
+        v1: row / rows,
+        u2: (col + 1) / cols,
+        v2: (row + 1) / rows
+      };
+      pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, tint, tint, tint, 1);
 
-    // Draw floor under obstacles, crates, barrels
-    if (t === TO || t === TC || t === TB) {
-      const floorUV = getTileUV(2, tx, ty); // Use floor tile with variation based on floorVar & 1
-      pTQ(tx * T, ty * T, T, T, floorUV.u1, floorUV.v1, floorUV.u2, floorUV.v2, 1, 1, 1, 1);
     }
-
-    // Get UV for the tile itself
-    const uv = getTileUV(t, tx, ty);
-    const tint = t === TD ? .85 : 1;
-    pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, tint, tint, tint, 1);
   }
+  // for (let ty = mnY; ty <= mxY; ty++)for (let tx = mnX; tx <= mxX; tx++) {
+  //   const t = gT(tx, ty); if (!t) continue;
+  //
+  //   // Draw floor under obstacles, crates, barrels
+  //   if (t === TO || t === TC || t === TB) {
+  //     const floorUV = getTileUV(2, tx, ty); // Use floor tile with variation based on floorVar & 1
+  //     pTQ(tx * T, ty * T, T, T, floorUV.u1, floorUV.v1, floorUV.u2, floorUV.v2, 1, 1, 1, 1);
+  //   }
+  //
+  //   // Get UV for the tile itself
+  //   const uv = getTileUV(t, tx, ty);
+  //   const tint = t === TD ? .85 : 1;
+  //   pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, tint, tint, tint, 1);
+  // }
 
   // Pickups
   setTx(tex.items);
