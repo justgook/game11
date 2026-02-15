@@ -355,12 +355,44 @@ function getTileUV(tileType, tx, ty) {
     const cols = tileset.metadata.atlasColumns;
     const rows = tileset.metadata.atlasRows;
 
-    // Handle 2x2 autotile type (wall tiles with neighbor-based mapping)
-    if (autotile.type === '2x2' && Array.isArray(autotile.rules) && autotile.rules.length >= 16) {
+    // Handle 2x2 and wang autotile types (tiles with neighbor-based mapping)
+    if ((autotile.type === '2x2' || autotile.type === 'wang') && Array.isArray(autotile.rules) && autotile.rules.length >= 16) {
+      // Determine neighbor types to check
+      let neighborTypes = autotile.neighborTypes;
+      if (!neighborTypes) {
+        // Default neighbor types based on autotile type
+        neighborTypes = autotile.type === 'wang' ? [2, 3] : [1]; // wang checks floor/door, 2x2 checks walls
+      }
+      // Create predicate function
+      const predicate = (x, y) => neighborTypes.includes(gT(x, y));
+
       // Calculate 4-direction neighbor bitmask (north, east, south, west)
-      const mask = getSideBitmask(tx, ty);
+      const mask = getSideBitmask(tx, ty, predicate);
       // Ensure mask is within 0-15 range
       const ruleIndex = mask & 0xF; // mask is already 0-15
+      const rule = autotile.rules[ruleIndex];
+
+      if (Array.isArray(rule) && rule.length >= 2) {
+        const [col, row] = rule;
+        return {
+          u1: col / cols,
+          v1: row / rows,
+          u2: (col + 1) / cols,
+          v2: (row + 1) / rows
+        };
+      }
+    }
+
+    // Handle basic autotile type (12 tiles: 4 walls, 4 outer corners, 4 inner corners)
+    if (autotile.type === 'basic' && Array.isArray(autotile.rules) && autotile.rules.length >= 12) {
+      // Determine neighbor types to check
+      let neighborTypes = autotile.neighborTypes;
+      if (!neighborTypes) {
+        neighborTypes = [2, 3]; // Default to checking for floor/door
+      }
+
+      // Calculate basic autotile index (0-11)
+      const ruleIndex = getBasicAutotileIndex(tx, ty, neighborTypes);
       const rule = autotile.rules[ruleIndex];
 
       if (Array.isArray(rule) && rule.length >= 2) {
@@ -393,10 +425,17 @@ function getTileUV(tileType, tx, ty) {
     }
 
     // Check bitmask mapping (legacy format)
-    if ((autotile.bitmaskMap || autotile.bitmaskGrid) && tileType === 1) { // Only walls for now
+    if (autotile.bitmaskMap || autotile.bitmaskGrid) {
+      // Determine neighbor types to check
+      let neighborTypes = autotile.neighborTypes;
+      if (!neighborTypes) {
+        neighborTypes = [1]; // Default to walls for backward compatibility
+      }
+      const predicate = (x, y) => neighborTypes.includes(gT(x, y));
+
       // Determine mask type
       const maskType = autotile.bitmaskType || 'side';
-      const mask = maskType === 'corner' ? getCornerBitmask(tx, ty) : getSideBitmask(tx, ty);
+      const mask = maskType === 'corner' ? getCornerBitmask(tx, ty, predicate) : getSideBitmask(tx, ty, predicate);
 
       let col, row;
 
@@ -476,23 +515,24 @@ function getTileUV(tileType, tx, ty) {
 // Calculate 2x2 corner bitmask for autotiling (Godot-style)
 // Bits: 0=top-left, 1=top-right, 2=bottom-right, 3=bottom-left
 // A bit is set (1) if all 3 cells around that corner are walls
-function getCornerBitmask(tx, ty) {
+function getCornerBitmask(tx, ty, predicate = null) {
   let mask = 0;
 
   // Helper to check if cell is wall
   const isWall = (x, y) => gT(x, y) === TW;
+  const check = predicate || isWall;
 
   // Top-left corner: check (tx-1,ty-1), (tx,ty-1), (tx-1,ty)
-  if (isWall(tx - 1, ty - 1) && isWall(tx, ty - 1) && isWall(tx - 1, ty)) mask |= 1 << 0;
+  if (check(tx - 1, ty - 1) && check(tx, ty - 1) && check(tx - 1, ty)) mask |= 1 << 0;
 
   // Top-right corner: check (tx,ty-1), (tx+1,ty-1), (tx+1,ty)
-  if (isWall(tx, ty - 1) && isWall(tx + 1, ty - 1) && isWall(tx + 1, ty)) mask |= 1 << 1;
+  if (check(tx, ty - 1) && check(tx + 1, ty - 1) && check(tx + 1, ty)) mask |= 1 << 1;
 
   // Bottom-right corner: check (tx+1,ty), (tx+1,ty+1), (tx,ty+1)
-  if (isWall(tx + 1, ty) && isWall(tx + 1, ty + 1) && isWall(tx, ty + 1)) mask |= 1 << 2;
+  if (check(tx + 1, ty) && check(tx + 1, ty + 1) && check(tx, ty + 1)) mask |= 1 << 2;
 
   // Bottom-left corner: check (tx-1,ty), (tx-1,ty+1), (tx,ty+1)
-  if (isWall(tx - 1, ty) && isWall(tx - 1, ty + 1) && isWall(tx, ty + 1)) mask |= 1 << 3;
+  if (check(tx - 1, ty) && check(tx - 1, ty + 1) && check(tx, ty + 1)) mask |= 1 << 3;
 
   return mask;
 }
@@ -500,16 +540,61 @@ function getCornerBitmask(tx, ty) {
 // Calculate side bitmask for autotiling (simple 4-direction)
 // Bits: 0=north, 1=east, 2=south, 3=west
 // A bit is set (1) if neighbor in that direction is wall
-function getSideBitmask(tx, ty) {
+function getSideBitmask(tx, ty, predicate = null) {
   let mask = 0;
   const isWall = (x, y) => gT(x, y) === TW;
+  const check = predicate || isWall;
 
-  if (isWall(tx, ty - 1)) mask |= 1 << 0; // north
-  if (isWall(tx + 1, ty)) mask |= 1 << 1; // east
-  if (isWall(tx, ty + 1)) mask |= 1 << 2; // south
-  if (isWall(tx - 1, ty)) mask |= 1 << 3; // west
+  if (check(tx, ty - 1)) mask |= 1 << 0; // north
+  if (check(tx + 1, ty)) mask |= 1 << 1; // east
+  if (check(tx, ty + 1)) mask |= 1 << 2; // south
+  if (check(tx - 1, ty)) mask |= 1 << 3; // west
 
   return mask;
+}
+
+// Calculate basic autotile index (0-11) for 12-tile set
+// Implements user's description:
+// Index 0: North wall - wall with wall below, walls left and right
+// Index 1: East wall - wall with wall left, walls above and below
+// Index 2: South wall - wall with wall above, walls left and right
+// Index 3: West wall - wall with wall right, walls above and below
+// Index 4: NE outer corner - walls north and east, floor NE diagonal
+// Index 5: ES outer corner - walls east and south, floor SE diagonal
+// Index 6: SW outer corner - walls south and west, floor SW diagonal
+// Index 7: WN outer corner - walls west and north, floor NW diagonal
+// Index 8: NW inner corner - walls north and west, floor SE diagonal (opposite)
+// Index 9: NE inner corner - walls north and east, floor SW diagonal (opposite)
+// Index 10: SE inner corner - walls south and east, floor NW diagonal (opposite)
+// Index 11: SW inner corner - walls south and west, floor NE diagonal (opposite)
+function getBasicAutotileIndex(x, y, neighborTypes = [2, 3]) {
+  const isWall = (x, y) => gT(x, y) === 1;
+  const isFloor = (x, y) => neighborTypes.includes(gT(x, y));
+
+  if (isWall(x - 1, y) && isWall(x + 1, y) && isFloor(x, y + 1)) return 0
+  if (isWall(x, y - 1) && isWall(x, y + 1) && isFloor(x - 1, y)) return 1
+  if (isWall(x - 1, y) && isWall(x + 1, y) && isFloor(x, y - 1)) return 2
+
+  return 3
+  // // Straight walls
+  // if (isWall(tx, ty - 1) && isWall(tx - 1, ty) && isWall(tx + 1, ty)) return 0; // North
+  // if (isWall(tx + 1, ty) && isWall(tx, ty - 1) && isWall(tx, ty + 1)) return 1; // East
+  // if (isWall(tx, ty + 1) && isWall(tx - 1, ty) && isWall(tx + 1, ty)) return 2; // South
+  // if (isWall(tx - 1, ty) && isWall(tx, ty - 1) && isWall(tx, ty + 1)) return 3; // West
+  //
+  // // Outer corners
+  // if (isWall(tx, ty - 1) && isWall(tx + 1, ty) && isFloor(tx + 1, ty - 1)) return 4; // NE
+  // if (isWall(tx + 1, ty) && isWall(tx, ty + 1) && isFloor(tx + 1, ty + 1)) return 5; // ES
+  // if (isWall(tx, ty + 1) && isWall(tx - 1, ty) && isFloor(tx - 1, ty + 1)) return 6; // SW
+  // if (isWall(tx - 1, ty) && isWall(tx, ty - 1) && isFloor(tx - 1, ty - 1)) return 7; // WN
+  //
+  // // Inner corners
+  // if (isWall(tx, ty - 1) && isWall(tx - 1, ty) && isFloor(tx + 1, ty + 1)) return 8;  // NW
+  // if (isWall(tx, ty - 1) && isWall(tx + 1, ty) && isFloor(tx - 1, ty + 1)) return 9;  // NE
+  // if (isWall(tx, ty + 1) && isWall(tx + 1, ty) && isFloor(tx - 1, ty - 1)) return 10; // SE
+  // if (isWall(tx, ty + 1) && isWall(tx - 1, ty) && isFloor(tx + 1, ty - 1)) return 11; // SW
+
+  return 0; // Default
 }
 
 // LEVEL
