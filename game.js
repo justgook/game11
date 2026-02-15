@@ -7,6 +7,7 @@
 
 const TILE_SIZE = 16; // Default tile size (also used as sprite size)
 const ATLAS_COLS = 32, ATLAS_ROWS = 32; // Atlas texture dimensions
+const ENTITY_SIZE = 12; // Player and enemy collision size
 
 // Level Management
 let currentLevelData = null;
@@ -182,7 +183,7 @@ function buildLevelFromData(data) {
     }
 
     enemies.push({
-      x: px, y: py, w: 22, h: 22, type: esp.type, ...et,
+      x: px, y: py, w: ENTITY_SIZE, h: ENTITY_SIZE, type: esp.type, ...et,
       mhp: et.hp, a: Math.random() * Math.PI * 2, st: 'patrol',
       ft: Math.random() * et.fr, at: 0, pp: pat, pi: 0, pw: 0,
       lx: 0, ly: 0, alive: true, hf: 0, sx: px, sy: py,
@@ -280,7 +281,7 @@ function endP() { flush(); }
 // TEXTURES
 
 
-const tex = {}; const texImages = {}; let texLoaded = 0; const TOTAL_TEX = 6;
+const tex = {}; const texImages = {}; let texLoaded = 0; const TOTAL_TEX = 2; // atlas + items
 
 function loadTex(name, src) {
   const t = gl.createTexture(); const img = new Image(); img.onload = () => {
@@ -292,11 +293,14 @@ function loadTex(name, src) {
     texLoaded++;
   }; img.src = src;
 }
-loadTex('atlas', 'assets/the_atlas.png'); loadTex('player', 'assets/player2.png');
-loadTex('enemy_grunt', 'assets/enemy_grunt.png'); loadTex('enemy_heavy', 'assets/enemy_heavy.png');
-loadTex('enemy_scout', 'assets/enemy_scout.png'); loadTex('items', 'assets/items.png');
+loadTex('atlas', 'assets/the_atlas.png');
+loadTex('items', 'assets/items.png');
+// loadTex('player', 'assets/player2.png');
+// loadTex('enemy_grunt', 'assets/enemy_grunt.png');
+// loadTex('enemy_heavy', 'assets/enemy_heavy.png');
+// loadTex('enemy_scout', 'assets/enemy_scout.png');
 
-function cUV(c, r) { return { u1: c / 9, v1: r / 4, u2: (c + 1) / 9, v2: (r + 1) / 4 }; }
+// function cUV(c, r) { return { u1: c / 9, v1: r / 4, u2: (c + 1) / 9, v2: (r + 1) / 4 }; }
 function iUV(c, r) { return { u1: c / 4, v1: r / 2, u2: (c + 1) / 4, v2: (r + 1) / 2 }; }
 
 // Simple animation state mapping (kept for compatibility)
@@ -307,17 +311,17 @@ function getAnimNameFromState(state) {
 
 // Get sprite data for entity (player or enemy)
 function getSprite(entity, isPlayer) {
-  // Returns { texture, u1, v1, u2, v2, r, g, b, a }
   const texture = 'atlas'; // Always use atlas for now
-  const atlasCols = ATLAS_COLS, atlasRows = ATLAS_ROWS; // Atlas dimensions
+  const atlasCols = 32, atlasRows = 16;
+  const w = 16, h = 32;
 
-  // Base sprite coordinates in 32×32 atlas
   let col = 0, row = 0;
-  let r = 1, g = 1, b = 1, a = 1;
+  let r = 1, g = 1, b = 1;
 
   if (isPlayer) {
     // Player sprite selection 
-    col = 9; row = 5;
+    // col = 9; row = 5;
+    col = 1; row = 1;
 
     // State-based tint
     const tints = {
@@ -334,6 +338,25 @@ function getSprite(entity, isPlayer) {
     if (entity.inv > 0 && Math.sin(gt * 30) > 0) {
       r = g = b = 2.0;
     }
+
+    return [
+      {
+        texture,
+        u1: 9 / atlasCols, v1: 5 / atlasRows,
+        u2: (9 + 1) / atlasCols, v2: (5 + 1) / atlasRows,
+        r, g, b, a: 1,
+        w, h,
+        x: -w + ENTITY_SIZE * 0.5, y: h - ENTITY_SIZE * 0.5,
+      },
+      // {
+      //   texture,
+      //   u1: col / atlasCols, v1: row / atlasRows,
+      //   u2: (col + 1) / atlasCols, v2: (row + 1) / atlasRows,
+      //   r, g, b, a: 1,
+      //   w: ENTITY_SIZE, h: ENTITY_SIZE,
+      //   x: -ENTITY_SIZE * 0.5, y: ENTITY_SIZE * 0.5,
+      // },
+    ]
   } else {
     // Enemy sprite selection
     const enemyTiles = {
@@ -365,13 +388,24 @@ function getSprite(entity, isPlayer) {
     }
   }
 
-  // Convert to UV (32×32 atlas)
-  return {
-    texture,
-    u1: col / atlasCols, v1: row / atlasRows,
-    u2: (col + 1) / atlasCols, v2: (row + 1) / atlasRows,
-    r, g, b, a: 1
-  };
+  return [
+    {
+      texture,
+      u1: col / atlasCols, v1: row / atlasRows,
+      u2: (col + 1) / atlasCols, v2: (row + 1) / atlasRows,
+      r, g, b, a: 1,
+      // w: 16, h: 32,
+      w: ENTITY_SIZE, h: ENTITY_SIZE,
+      x: -ENTITY_SIZE * 0.5, y: ENTITY_SIZE * 0.5,
+    },
+    {
+      texture,
+      u1: col / atlasCols, v1: row / atlasRows,
+      u2: (col + 1) / atlasCols, v2: (row + 1) / atlasRows,
+      r, g, b, a: 1,
+      w, h,
+      x: -w + ENTITY_SIZE * 0.5, y: h - ENTITY_SIZE * 0.5,
+    }]
 }
 
 const TileTypes = {
@@ -383,7 +417,7 @@ const TileTypes = {
   Barrel: 6,
 }
 
-function autotile(x, y, getTeleType) {
+function getTile(x, y, getTeleType) {
   let col, row;
 
   function isWall(x, y) {
@@ -410,8 +444,10 @@ function autotile(x, y, getTeleType) {
     case 2: return [[x, y, 1, 4]];   // Floor
     case 3: col = 2; row = 2; break;  // Door (same as floor)
     case 4: return [[x, y, 1, 4], [x, y, 18, 26], [x, y - 1, 18, 25]];  // Obstacle
-    case 5: col = 8; row = 0; break;  // Crate
-    case 6: col = 9; row = 0; break;  // Barrel
+    case 5: col = 8; row = 0;
+      const a = Math.round(Math.random())
+      return [[x, y, 1, 4], [x, y, 19 + a, 29], [x, y - 1, 19 + a, 28]];  // Crate
+    case 6: col = 9; row = 0; return [[x, y, 1, 4], [x, y, 18, 29], [x, y - 1, 18, 28]]; // Barrel
     default: col = 0; row = 0;
   }
   return [[x, y, col, row]]; // could return multiple tiles
@@ -429,7 +465,7 @@ function prepareTiles(levelWidth, levelHeight, tileData) {
       const idx = y * levelWidth + x;
       const tileType = tileData[idx];
       if (tileType === 0) continue;
-      autotile(x, y, getTeleType).forEach((x, i) => {
+      getTile(x, y, getTeleType).forEach((x, i) => {
         if (!x) return
         if (!results[i]) results[i] = []
         results[i].push(x);
@@ -462,7 +498,7 @@ function updCam(tx, ty) { cam.scale = Math.min(canvas.width, canvas.height) / (T
 
 // PLAYER
 const P = {
-  x: pSpawn.x * T + T / 2, y: pSpawn.y * T + T / 2, w: 20, h: 20, speed: 150, angle: 0, hp: 100, mhp: 100, ammo: 50, mammo: 80,
+  x: pSpawn.x * T + T / 2, y: pSpawn.y * T + T / 2, w: ENTITY_SIZE, h: ENTITY_SIZE, speed: 150, angle: 0, hp: 100, mhp: 100, ammo: 50, mammo: 80,
   wpn: 'pistol', wi: 0, wpns: ['pistol', 'shotgun', 'melee'], ft: 0, fr: { pistol: .25, shotgun: .6, melee: .4 },
   mr: 50, md: 35, ms: 0, alive: true, inv: 0, dt: 0, dc: 0, ds: 600, dd: .12, af: 0, at: 0, dir: 0, st: 'idle'
 };
@@ -682,12 +718,17 @@ function render() {
   // Enemies
   for (const e of enemies) {
     if (!e.alive) continue;
-    const sprite = getSprite(e, false);
-    setTx(tex[sprite.texture]);
-    pTQ(e.x - 16, e.y - 16, 32, 32,
-      sprite.u1, sprite.v1, sprite.u2, sprite.v2,
-      sprite.r, sprite.g, sprite.b, sprite.a);
-    setTx(null); pQ(e.x - 12, e.y - 20, 24, 4, .15, .1, .1, .8); pQ(e.x - 12, e.y - 20, 24 * Math.max(0, e.hp / e.mhp), 4, .8, .15, .1, .9);
+    const sprites = getSprite(e, false)
+    setTx(tex[sprites[0].texture])
+    for (let i = 0; i < sprites.length; i++) {
+      const sprite = sprites[i]
+      pTQ(e.x + sprite.x, e.y - sprite.y, sprite.w, sprite.h,
+        sprite.u1, sprite.v1, sprite.u2, sprite.v2,
+        sprite.r, sprite.g, sprite.b, sprite.a)
+    }
+    setTx(null);
+    pQ(e.x - 12, e.y - 20, 24, 4, .15, .1, .1, .8);
+    pQ(e.x - 12, e.y - 20, 24 * Math.max(0, e.hp / e.mhp), 4, .8, .15, .1, .9);
     if (e.st === 'chase') pQ(e.x - 2, e.y - 24, 4, 4, 1, .2, .1, .9);
   }
 
@@ -699,11 +740,15 @@ function render() {
 
   // Player
   if (P.alive) {
-    const sprite = getSprite(P, true);
-    setTx(tex[sprite.texture]);
-    pTQ(P.x - 16, P.y - 16, 32, 32,
-      sprite.u1, sprite.v1, sprite.u2, sprite.v2,
-      sprite.r, sprite.g, sprite.b, sprite.a);
+    const sprites = getSprite(P, true)
+    setTx(tex[sprites[0].texture])
+    for (let i = 0; i < sprites.length; i++) {
+      const sprite = sprites[i]
+      // console.log(sprite)
+      pTQ(P.x + sprite.x, P.y - sprite.y, sprite.w, sprite.h,
+        sprite.u1, sprite.v1, sprite.u2, sprite.v2,
+        sprite.r, sprite.g, sprite.b, sprite.a)
+    }
 
     if (P.wpn === 'melee' && P.ms > 0) {
       setTx(null);
