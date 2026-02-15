@@ -79,7 +79,7 @@ export const playerAnimConfig = {
     dash: 0.08,
     shoot: 0.1,
     walk: 0.08,
-    melee: 0.2,
+    slash: 0.08,
   },
   // const animSpeed = P.st === 'dash' ? 0.08 : P.st === 'shoot' ? 0.1 : P.st === 'slash' ? 0.06 : P.st === 'walk' ? 0.15 : 0.2;
 

@@ -3,6 +3,12 @@
 import { playerAnimConfig } from './player_anim_config.js';
 import { getPlayerSpriteGrid, getPlayerAnimUV, getAnimFrameCount, getAnimNameFromState } from './load.js';
 
+// Tileset configuration
+let tileset = null;
+let tilesetLoaded = false;
+
+const TILE_SIZE = 16; // Default tile size (also used as sprite size)
+
 // Level Management
 let currentLevelData = null;
 let currentLevelUrl = 'levels/level1.json';
@@ -271,6 +277,22 @@ function beginP(p, l, h) { curProg = p; curLoc = l; curHUD = h; vc = 0; curTex =
 function endP() { flush(); }
 
 // TEXTURES
+// Tileset configuration loading
+async function loadTilesetConfig() {
+  try {
+    const response = await fetch('tileset.json');
+    if (!response.ok) throw new Error('Failed to load tileset.json');
+    tileset = await response.json();
+    tilesetLoaded = true;
+
+  } catch (error) {
+    console.error('Error loading tileset config:', error);
+    // Fallback to hardcoded tile mapping
+    tileset = null;
+    tilesetLoaded = false;
+  }
+}
+
 const tex = {}; const texImages = {}; let texLoaded = 0; const TOTAL_TEX = 6;
 let playerSpriteGrid = { cols: 13, rows: 56 }; // Default grid for player sprite
 
@@ -290,7 +312,7 @@ function loadTex(name, src) {
     texLoaded++;
   }; img.src = src;
 }
-loadTex('tileset', 'assets/tileset.png'); loadTex('player', 'assets/player2.png');
+loadTex('atlas', 'assets/the_atlas.png'); loadTex('player', 'assets/player2.png');
 loadTex('enemy_grunt', 'assets/enemy_grunt.png'); loadTex('enemy_heavy', 'assets/enemy_heavy.png');
 loadTex('enemy_scout', 'assets/enemy_scout.png'); loadTex('items', 'assets/items.png');
 
@@ -298,8 +320,200 @@ function tUV(c, r) { return { u1: c / 8, v1: r / 4, u2: (c + 1) / 8, v2: (r + 1)
 function cUV(c, r) { return { u1: c / 9, v1: r / 4, u2: (c + 1) / 9, v2: (r + 1) / 4 }; }
 function iUV(c, r) { return { u1: c / 4, v1: r / 2, u2: (c + 1) / 4, v2: (r + 1) / 2 }; }
 
+// Tile UV from tileset configuration
+function getTileUV(tileType, tx, ty) {
+  if (!tilesetLoaded || !tileset) {
+    // Fallback mapping using atlas coordinates (32 columns, 32 rows)
+    const cols = 32, rows = 32;
+    let col = 0, row = 0;
+    switch (tileType) {
+      case 1: col = 0; row = 0; break; // wall
+      case 2: col = 1 + (floorVar[ty * LW + tx] % 4); row = 0; break; // floor variations
+      case 3: col = 1; row = 0; break; // door (uses floor)
+      case 4: col = 7; row = 0; break; // obstacle
+      case 5: col = 8; row = 0; break; // crate
+      case 6: col = 9; row = 0; break; // barrel
+      default: col = 0; row = 0;
+    }
+    return { u1: col / cols, v1: row / rows, u2: (col + 1) / cols, v2: (row + 1) / rows };
+  }
+
+  let tileDef = tileset.tileDefinitions.find(t => t.id === tileType);
+  // Door uses floor tile graphics
+  if (tileType === 3) {
+    tileDef = tileset.tileDefinitions.find(t => t.id === 2) || tileDef;
+  }
+  if (!tileDef) {
+    const cols = tileset.metadata.atlasColumns;
+    const rows = tileset.metadata.atlasRows;
+    return { u1: 0 / cols, v1: 0 / rows, u2: 1 / cols, v2: 1 / rows };
+  }
+
+  // Handle autotile rules and bitmask mapping
+  if (tileDef.autotile) {
+    const autotile = tileDef.autotile;
+    const cols = tileset.metadata.atlasColumns;
+    const rows = tileset.metadata.atlasRows;
+
+    // Handle 2x2 autotile type (wall tiles with neighbor-based mapping)
+    if (autotile.type === '2x2' && Array.isArray(autotile.rules) && autotile.rules.length >= 16) {
+      // Calculate 4-direction neighbor bitmask (north, east, south, west)
+      const mask = getSideBitmask(tx, ty);
+      // Ensure mask is within 0-15 range
+      const ruleIndex = mask & 0xF; // mask is already 0-15
+      const rule = autotile.rules[ruleIndex];
+
+      if (Array.isArray(rule) && rule.length >= 2) {
+        const [col, row] = rule;
+        return {
+          u1: col / cols,
+          v1: row / rows,
+          u2: (col + 1) / cols,
+          v2: (row + 1) / rows
+        };
+      }
+    }
+
+    // Check simple rules first (e.g., neighborBelowIsFloor) - only if rules are objects with condition
+    if (autotile.rules && autotile.rules.length > 0 && typeof autotile.rules[0] === 'object' && autotile.rules[0].condition) {
+      for (const rule of autotile.rules) {
+        if (rule.condition === 'neighborBelowIsFloor') {
+          const bl = gT(tx, ty + 1);
+          if (bl === 2 || bl === 3) { // floor or door
+            return {
+              u1: rule.col / cols,
+              v1: rule.row / rows,
+              u2: (rule.col + 1) / cols,
+              v2: (rule.row + 1) / rows
+            };
+          }
+        }
+        // Add other rule conditions here as needed
+      }
+    }
+
+    // Check bitmask mapping (legacy format)
+    if ((autotile.bitmaskMap || autotile.bitmaskGrid) && tileType === 1) { // Only walls for now
+      // Determine mask type
+      const maskType = autotile.bitmaskType || 'side';
+      const mask = maskType === 'corner' ? getCornerBitmask(tx, ty) : getSideBitmask(tx, ty);
+
+      let col, row;
+
+      // Check bitmaskGrid first (grid-based layout)
+      if (autotile.bitmaskGrid && Array.isArray(autotile.bitmaskGrid) && autotile.bitmaskGrid.length >= 4) {
+        const [startCol, startRow, gridCols, gridRows] = autotile.bitmaskGrid;
+        // Ensure mask within grid bounds
+        const gridIndex = mask % (gridCols * gridRows);
+        col = startCol + (gridIndex % gridCols);
+        row = startRow + Math.floor(gridIndex / gridCols);
+      }
+      // Fallback to explicit bitmaskMap
+      else if (autotile.bitmaskMap && autotile.bitmaskMap[mask]) {
+        const mapping = autotile.bitmaskMap[mask];
+        if (Array.isArray(mapping) && mapping.length >= 2) {
+          col = mapping[0];
+          row = mapping[1];
+        }
+      }
+
+      if (col !== undefined && row !== undefined) {
+        return {
+          u1: col / cols,
+          v1: row / rows,
+          u2: (col + 1) / cols,
+          v2: (row + 1) / rows
+        };
+      }
+    }
+  }
+
+  // Variation-based (floor tiles) and door tiles (use floor variation)
+  const floorOrDoor = tileType === 2 || tileType === 3;
+  if (floorOrDoor && tileDef.autotile && tileDef.autotile.type === 'variation') {
+    const variation = floorVar[ty * LW + tx] % tileDef.autotile.variationCount;
+    const varDef = tileDef.variations[variation];
+    if (varDef) {
+      const cols = tileset.metadata.atlasColumns;
+      const rows = tileset.metadata.atlasRows;
+      return {
+        u1: varDef.col / cols,
+        v1: varDef.row / rows,
+        u2: (varDef.col + 1) / cols,
+        v2: (varDef.row + 1) / rows
+      };
+    }
+  }
+
+  // Default tile coordinates
+  const cols = tileset.metadata.atlasColumns;
+  const rows = tileset.metadata.atlasRows;
+  let col = 0, row = 0;
+  if (tileDef.atlasCol !== undefined && tileDef.atlasRow !== undefined) {
+    col = tileDef.atlasCol;
+    row = tileDef.atlasRow;
+  } else {
+    // Fallback for tiles without explicit coordinates (e.g., walls with autotile only)
+    // Use hardcoded mapping similar to tileset-not-loaded case
+    switch (tileType) {
+      case 1: col = 0; row = 0; break; // wall
+      case 2: col = 1 + (floorVar[ty * LW + tx] % 4); row = 0; break; // floor
+      case 3: col = 1; row = 0; break; // door
+      case 4: col = 7; row = 0; break; // obstacle
+      case 5: col = 8; row = 0; break; // crate
+      case 6: col = 9; row = 0; break; // barrel
+      default: col = 0; row = 0;
+    }
+  }
+  return {
+    u1: col / cols,
+    v1: row / rows,
+    u2: (col + 1) / cols,
+    v2: (row + 1) / rows
+  };
+}
+
+// Calculate 2x2 corner bitmask for autotiling (Godot-style)
+// Bits: 0=top-left, 1=top-right, 2=bottom-right, 3=bottom-left
+// A bit is set (1) if all 3 cells around that corner are walls
+function getCornerBitmask(tx, ty) {
+  let mask = 0;
+
+  // Helper to check if cell is wall
+  const isWall = (x, y) => gT(x, y) === TW;
+
+  // Top-left corner: check (tx-1,ty-1), (tx,ty-1), (tx-1,ty)
+  if (isWall(tx - 1, ty - 1) && isWall(tx, ty - 1) && isWall(tx - 1, ty)) mask |= 1 << 0;
+
+  // Top-right corner: check (tx,ty-1), (tx+1,ty-1), (tx+1,ty)
+  if (isWall(tx, ty - 1) && isWall(tx + 1, ty - 1) && isWall(tx + 1, ty)) mask |= 1 << 1;
+
+  // Bottom-right corner: check (tx+1,ty), (tx+1,ty+1), (tx,ty+1)
+  if (isWall(tx + 1, ty) && isWall(tx + 1, ty + 1) && isWall(tx, ty + 1)) mask |= 1 << 2;
+
+  // Bottom-left corner: check (tx-1,ty), (tx-1,ty+1), (tx,ty+1)
+  if (isWall(tx - 1, ty) && isWall(tx - 1, ty + 1) && isWall(tx, ty + 1)) mask |= 1 << 3;
+
+  return mask;
+}
+
+// Calculate side bitmask for autotiling (simple 4-direction)
+// Bits: 0=north, 1=east, 2=south, 3=west
+// A bit is set (1) if neighbor in that direction is wall
+function getSideBitmask(tx, ty) {
+  let mask = 0;
+  const isWall = (x, y) => gT(x, y) === TW;
+
+  if (isWall(tx, ty - 1)) mask |= 1 << 0; // north
+  if (isWall(tx + 1, ty)) mask |= 1 << 1; // east
+  if (isWall(tx, ty + 1)) mask |= 1 << 2; // south
+  if (isWall(tx - 1, ty)) mask |= 1 << 3; // west
+
+  return mask;
+}
+
 // LEVEL
-let T = 32, LW = 60, LH = 45, ld = new Uint8Array(LW * LH);
+let T = TILE_SIZE, LW = 60, LH = 45, ld = new Uint8Array(LW * LH);
 let floorVar = new Uint8Array(LW * LH);
 const TW = 1, TF = 2, TD = 3, TO = 4, TC = 5, TB = 6, TSP = 7, TSE = 8, TA = 9, TH = 10;
 function sT(x, y, v) { if (x >= 0 && x < LW && y >= 0 && y < LH) ld[y * LW + x] = v; }
@@ -315,7 +529,7 @@ const eSpawns = [], pickups = [];
 
 // CAMERA
 const cam = { x: 0, y: 0, scale: 1 };
-function updCam(tx, ty) { cam.scale = Math.min(canvas.width, canvas.height) / (T * 20); cam.x += (tx - cam.x) * .1; cam.y += (ty - cam.y) * .1; }
+function updCam(tx, ty) { cam.scale = Math.min(canvas.width, canvas.height) / (T * 40); cam.x += (tx - cam.x) * .1; cam.y += (ty - cam.y) * .1; }
 
 // PLAYER
 const P = {
@@ -506,15 +720,20 @@ function render() {
 
   beginP(prog, loc, false);
   // Tiles
-  setTx(tex.tileset);
+  setTx(tex.atlas);
   for (let ty = mnY; ty <= mxY; ty++)for (let tx = mnX; tx <= mxX; tx++) {
-    const t = gT(tx, ty); if (!t) continue; let uv;
-    if (t === TF || t === TD) { uv = tUV(floorVar[ty * LW + tx], 0); }
-    else if (t === TW) { const bl = gT(tx, ty + 1); uv = (bl === TF || bl === TD) ? tUV(5, 0) : tUV(4, 0); }
-    else if (t === TO) { const fuv = tUV(floorVar[ty * LW + tx] & 1, 0); pTQ(tx * T, ty * T, T, T, fuv.u1, fuv.v1, fuv.u2, fuv.v2, 1, 1, 1, 1); uv = tUV(2, 1); }
-    else if (t === TC) { const fuv = tUV(floorVar[ty * LW + tx] & 1, 0); pTQ(tx * T, ty * T, T, T, fuv.u1, fuv.v1, fuv.u2, fuv.v2, 1, 1, 1, 1); uv = tUV(3, 1); }
-    else if (t === TB) { const fuv = tUV(floorVar[ty * LW + tx] & 1, 0); pTQ(tx * T, ty * T, T, T, fuv.u1, fuv.v1, fuv.u2, fuv.v2, 1, 1, 1, 1); uv = tUV(4, 1); }
-    if (uv) pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, t === TD ? .85 : 1, t === TD ? .85 : 1, t === TD ? .85 : 1, 1);
+    const t = gT(tx, ty); if (!t) continue;
+
+    // Draw floor under obstacles, crates, barrels
+    if (t === TO || t === TC || t === TB) {
+      const floorUV = getTileUV(2, tx, ty); // Use floor tile with variation based on floorVar & 1
+      pTQ(tx * T, ty * T, T, T, floorUV.u1, floorUV.v1, floorUV.u2, floorUV.v2, 1, 1, 1, 1);
+    }
+
+    // Get UV for the tile itself
+    const uv = getTileUV(t, tx, ty);
+    const tint = t === TD ? .85 : 1;
+    pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, tint, tint, tint, 1);
   }
 
   // Pickups
@@ -621,7 +840,9 @@ function renderText() {
 function loop(now) { const dt = Math.min((now - lastT) / 1000, .05); lastT = now; update(dt); render(); requestAnimationFrame(loop); }
 
 // Initialize the game
-loadLevel('levels/level1.json').then(() => {
+(async () => {
+  await loadTilesetConfig();
+  await loadLevel('levels/level1.json');
   requestAnimationFrame(loop);
-});
+})();
 

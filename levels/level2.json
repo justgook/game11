@@ -4,7 +4,7 @@
   "dimensions": {
     "w": 50,
     "h": 40,
-    "tileSize": 32
+    "tileSize": 16
   },
   "winCondition": "eliminate_all",
   "isLastLevel": false,

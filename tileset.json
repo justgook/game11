@@ -1,0 +1,240 @@
+{
+  "metadata": {
+    "atlasImage": "assets/the_atlas.png",
+    "tileWidth": 16,
+    "tileHeight": 16,
+    "atlasColumns": 32,
+    "atlasRows": 32,
+    "defaultTileSize": 16
+  },
+  "tileDefinitions": [
+    {
+      "id": 1,
+      "name": "wall",
+      "description": "Solid wall tile",
+      "properties": {
+        "collision": true,
+        "destructible": false,
+        "opaque": true
+      },
+      "autotile": {
+        "type": "2x2",
+        "rules": [
+          [
+            8,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            11
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            3,
+            10
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "name": "floor",
+      "description": "Walkable floor tile",
+      "atlasCol": 0,
+      "atlasRow": 4,
+      "variations": [
+        {
+          "col": 1,
+          "row": 4,
+          "condition": "variation0"
+        },
+        {
+          "col": 2,
+          "row": 4,
+          "condition": "variation1"
+        },
+        {
+          "col": 3,
+          "row": 4,
+          "condition": "variation2"
+        },
+        {
+          "col": 2,
+          "row": 5,
+          "condition": "variation3"
+        }
+      ],
+      "properties": {
+        "collision": false,
+        "destructible": false,
+        "opaque": false
+      },
+      "autotile": {
+        "type": "variation",
+        "variationCount": 4
+      }
+    },
+    {
+      "id": 3,
+      "name": "door",
+      "description": "Door tile (walkable)",
+      "atlasCol": 6,
+      "atlasRow": 0,
+      "properties": {
+        "collision": false,
+        "destructible": false,
+        "opaque": false
+      }
+    },
+    {
+      "id": 4,
+      "name": "obstacle",
+      "description": "Solid obstacle (like pillar)",
+      "atlasCol": 7,
+      "atlasRow": 0,
+      "properties": {
+        "collision": true,
+        "destructible": false,
+        "opaque": true
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate",
+      "description": "Destructible crate",
+      "atlasCol": 8,
+      "atlasRow": 0,
+      "properties": {
+        "collision": true,
+        "destructible": true,
+        "opaque": true
+      }
+    },
+    {
+      "id": 6,
+      "name": "barrel",
+      "description": "Destructible barrel",
+      "atlasCol": 9,
+      "atlasRow": 0,
+      "properties": {
+        "collision": true,
+        "destructible": true,
+        "opaque": true
+      }
+    },
+    {
+      "id": 7,
+      "name": "spawn",
+      "description": "Player spawn point",
+      "atlasCol": 10,
+      "atlasRow": 0,
+      "properties": {
+        "collision": false,
+        "destructible": false,
+        "opaque": false
+      }
+    },
+    {
+      "id": 8,
+      "name": "enemy_spawn",
+      "description": "Enemy spawn point",
+      "atlasCol": 11,
+      "atlasRow": 0,
+      "properties": {
+        "collision": false,
+        "destructible": false,
+        "opaque": false
+      }
+    },
+    {
+      "id": 9,
+      "name": "ammo",
+      "description": "Ammo pickup",
+      "atlasCol": 12,
+      "atlasRow": 0,
+      "properties": {
+        "collision": false,
+        "destructible": false,
+        "opaque": false
+      }
+    },
+    {
+      "id": 10,
+      "name": "health",
+      "description": "Health pickup",
+      "atlasCol": 13,
+      "atlasRow": 0,
+      "properties": {
+        "collision": false,
+        "destructible": false,
+        "opaque": false
+      }
+    }
+  ],
+  "autotileConfig": {
+    "simpleRules": {
+      "neighborBelowIsFloor": {
+        "description": "Tile below is floor or door",
+        "check": [
+          "down"
+        ],
+        "matchTypes": [
+          2,
+          3
+        ]
+      }
+    },
+    "bitmaskGroups": []
+  }
+}
