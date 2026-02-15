@@ -1,11 +1,12 @@
 "use strict";
 
-import { playerAnimConfig } from './player_anim_config.js';
-import { getPlayerSpriteGrid, getPlayerAnimUV, getAnimFrameCount, getAnimNameFromState } from './load.js';
+// Atlas-based sprite system
+// Player & enemies use atlas tiles with tint for state
 
 
 
 const TILE_SIZE = 16; // Default tile size (also used as sprite size)
+const ATLAS_COLS = 32, ATLAS_ROWS = 32; // Atlas texture dimensions
 
 // Level Management
 let currentLevelData = null;
@@ -280,7 +281,6 @@ function endP() { flush(); }
 
 
 const tex = {}; const texImages = {}; let texLoaded = 0; const TOTAL_TEX = 6;
-let playerSpriteGrid = { cols: 13, rows: 56 }; // Default grid for player sprite
 
 function loadTex(name, src) {
   const t = gl.createTexture(); const img = new Image(); img.onload = () => {
@@ -289,12 +289,6 @@ function loadTex(name, src) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     tex[name] = t;
     texImages[name] = img;
-
-    // Calculate player sprite grid when player texture loads
-    if (name === 'player') {
-      playerSpriteGrid = getPlayerSpriteGrid(playerAnimConfig, img);
-    }
-
     texLoaded++;
   }; img.src = src;
 }
@@ -305,8 +299,80 @@ loadTex('enemy_scout', 'assets/enemy_scout.png'); loadTex('items', 'assets/items
 function cUV(c, r) { return { u1: c / 9, v1: r / 4, u2: (c + 1) / 9, v2: (r + 1) / 4 }; }
 function iUV(c, r) { return { u1: c / 4, v1: r / 2, u2: (c + 1) / 4, v2: (r + 1) / 2 }; }
 
+// Simple animation state mapping (kept for compatibility)
+function getAnimNameFromState(state) {
+  const map = { idle: 'idle', walk: 'walking', slash: 'melee', shoot: 'shooting', dash: 'dashing' };
+  return map[state] || 'idle';
+}
 
+// Get sprite data for entity (player or enemy)
+function getSprite(entity, isPlayer) {
+  // Returns { texture, u1, v1, u2, v2, r, g, b, a }
+  const texture = 'atlas'; // Always use atlas for now
+  const atlasCols = ATLAS_COLS, atlasRows = ATLAS_ROWS; // Atlas dimensions
 
+  // Base sprite coordinates in 32×32 atlas
+  let col = 0, row = 0;
+  let r = 1, g = 1, b = 1, a = 1;
+
+  if (isPlayer) {
+    // Player sprite selection 
+    col = 9; row = 5;
+
+    // State-based tint
+    const tints = {
+      idle: [0.5, 1.0, 1.0],   // cyan
+      walk: [0.8, 1.0, 0.8],   // light green
+      dash: [1.0, 1.0, 1.0],   // white
+      shoot: [1.0, 1.0, 0.7],   // yellow
+      slash: [1.0, 0.7, 0.5]    // orange
+    };
+    const tint = tints[entity.st] || tints.idle;
+    [r, g, b] = tint;
+
+    // Hit flash (invulnerable)
+    if (entity.inv > 0 && Math.sin(gt * 30) > 0) {
+      r = g = b = 2.0;
+    }
+  } else {
+    // Enemy sprite selection
+    const enemyTiles = {
+      grunt: [9, 3],  // column 1, row 0
+      heavy: [9, 7],  // column 2, row 0
+      scout: [9, 9]   // column 3, row 0
+    };
+    [col, row] = enemyTiles[entity.type] || [0, 1];
+
+    // Type-based base tint
+    const baseTints = {
+      grunt: [0.9, 0.2, 0.2],   // red
+      heavy: [0.7, 0.2, 0.2],   // dark red  
+      scout: [1.0, 0.6, 0.2]    // orange
+    };
+    [r, g, b] = baseTints[entity.type] || [1, 0, 0];
+
+    // State modulation
+    if (entity.as === 'walk') {
+      r *= 1.2; g *= 1.2; b *= 1.2;
+    }
+    if (entity.st === 'chase') {
+      r *= 1.3; // brighter when chasing
+    }
+
+    // Hit flash
+    if (entity.hf > 0) {
+      r *= 3; g *= 0.5; b *= 0.5;
+    }
+  }
+
+  // Convert to UV (32×32 atlas)
+  return {
+    texture,
+    u1: col / atlasCols, v1: row / atlasRows,
+    u2: (col + 1) / atlasCols, v2: (row + 1) / atlasRows,
+    r, g, b, a: 1
+  };
+}
 
 const TileTypes = {
   WALL: 1,
@@ -438,9 +504,9 @@ function update(dt) {
   const ny = P.y + dy * spd * dt; if (!rC(P.x - hw, ny - hw, P.w, P.h)) P.y = ny;
   if (P.inv > 0) P.inv -= dt; if (P.ft > 0) P.ft -= dt;
 
-  // Animation state management
+  // Animation state management (simplified - only state, no frame counting)
   const prevSt = P.st;
-  P.at += dt;
+  P.at += dt; // Keep timer for possible future use
 
   // Determine state priority: dash > shoot > melee > walk > idle
   if (P.dt > 0) {
@@ -455,20 +521,10 @@ function update(dt) {
     P.st = 'idle';
   }
 
-  // Reset animation frame when state changes
+  // Reset animation frame when state changes (kept for compatibility)
   if (P.st !== prevSt) {
     P.af = 0;
     P.at = 0;
-  }
-
-  // Update animation frame based on state
-  const animName = getAnimNameFromState(P.st);
-  const frameCount = getAnimFrameCount(playerAnimConfig, animName, P.dir);
-  // const animSpeed = P.st === 'dash' ? 0.08 : P.st === 'shoot' ? 0.1 : P.st === 'slash' ? 0.06 : P.st === 'walk' ? 0.15 : 0.2;
-  const animSpeed = playerAnimConfig.animSpeed[P.st]
-  if (P.at > animSpeed) {
-    P.at = 0;
-    P.af = (P.af + 1) % frameCount;
   }
 
   if (mouse.d && P.ft <= 0) {
@@ -553,7 +609,7 @@ function update(dt) {
       if (sd < 8) { e.st = 'patrol'; e.pi = 0; } else { const mx = sx / sd * e.s * dt * .6, my = sy / sd * e.s * dt * .6; if (!rC(e.x + mx - e.w / 2, e.y - e.w / 2, e.w, e.h)) e.x += mx; if (!rC(e.x - e.w / 2, e.y + my - e.w / 2, e.w, e.h)) e.y += my; e.a = Math.atan2(sy, sx); mov = true; }
       if (cs) { e.st = 'chase'; e.at = 5; e.lx = P.x; e.ly = P.y; }
     }
-    e.dir = a2d(e.a); if (mov) { e.as = 'walk'; if (e.aT > .18) { e.aT = 0; e.af = (e.af + 1) % 4; } } else { e.as = 'idle'; e.af = 0; }
+    e.dir = a2d(e.a); if (mov) { e.as = 'walk'; } else { e.as = 'idle'; }
   }
 
   for (const p of pickups) {
@@ -581,7 +637,7 @@ function render() {
   beginP(prog, loc, false);
   // Tiles
   setTx(tex.atlas);
-  const cols = 32, rows = 32; //TODO: remove Hardcoded atlas dimensions
+  const cols = ATLAS_COLS, rows = ATLAS_ROWS;
   for (const layer of autotileCoords) {
     for (const tile of layer) {
       const [tx, ty, col, row] = tile
@@ -625,9 +681,12 @@ function render() {
 
   // Enemies
   for (const e of enemies) {
-    if (!e.alive) continue; setTx(tex[e.tn]);
-    let col = 0; if (e.as === 'walk') col = 1 + e.af; const uv = cUV(col, e.dir);
-    const fl = e.hf > 0; pTQ(e.x - 16, e.y - 16, 32, 32, uv.u1, uv.v1, uv.u2, uv.v2, fl ? 3 : 1, fl ? .5 : 1, fl ? .5 : 1, 1);
+    if (!e.alive) continue;
+    const sprite = getSprite(e, false);
+    setTx(tex[sprite.texture]);
+    pTQ(e.x - 16, e.y - 16, 32, 32,
+      sprite.u1, sprite.v1, sprite.u2, sprite.v2,
+      sprite.r, sprite.g, sprite.b, sprite.a);
     setTx(null); pQ(e.x - 12, e.y - 20, 24, 4, .15, .1, .1, .8); pQ(e.x - 12, e.y - 20, 24 * Math.max(0, e.hp / e.mhp), 4, .8, .15, .1, .9);
     if (e.st === 'chase') pQ(e.x - 2, e.y - 24, 4, 4, 1, .2, .1, .9);
   }
@@ -640,13 +699,11 @@ function render() {
 
   // Player
   if (P.alive) {
-    setTx(tex.player);
-
-    // Get animation name from player state and use current animation frame
-    const animName = getAnimNameFromState(P.st);
-    const uv = getPlayerAnimUV(playerAnimConfig, animName, P.dir, P.af, playerSpriteGrid);
-    const fl = P.inv > 0 && Math.sin(gt * 30) > 0;
-    pTQ(P.x - 16, P.y - 16, 32, 32, uv.u1, uv.v1, uv.u2, uv.v2, fl ? 2 : 1, fl ? 2 : 1, fl ? 2 : 1, 1);
+    const sprite = getSprite(P, true);
+    setTx(tex[sprite.texture]);
+    pTQ(P.x - 16, P.y - 16, 32, 32,
+      sprite.u1, sprite.v1, sprite.u2, sprite.v2,
+      sprite.r, sprite.g, sprite.b, sprite.a);
 
     if (P.wpn === 'melee' && P.ms > 0) {
       setTx(null);
