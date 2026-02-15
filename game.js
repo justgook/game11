@@ -325,20 +325,21 @@ function autotile(x, y, getTeleType) {
   }
 
   function isFloor(x, y) {
-    return getTeleType(x, y) === TileTypes.FLOOR
+    const test = getTeleType(x, y)
+    return test === TileTypes.FLOOR
+      || test === TileTypes.Obstacle
+      || test === TileTypes.Crate
+      || test === TileTypes.Barrel
   }
   switch (getTeleType(x, y)) {
     case TileTypes.WALL:
-      col = 8; row = 1;
-      if (isWall(x + 1, y) && isWall(x - 1, y) && isFloor(x, y + 1)) return [[x, y, 2, 1], [x, y - 1, 1, 0]]
-      if (isWall(x, y + 1) && isWall(x, y - 1) && isFloor(x - 1, y)) return [null, null, [x - 1, y, 3, 10]]
-      if (isWall(x + 1, y) && isWall(x - 1, y) && isFloor(x, y - 1)) return [[x, y, 2, 1], [x, y - 1, 1, 0]]
-      if (isWall(x, y + 1) && isWall(x, y - 1) && isFloor(x + 1, y)) return [null, null, [x + 1, y, 2, 10]]
-      if (isWall(x, y + 1) && isWall(x - 1, y) && isFloor(x + 1, y)) return [null, [x, y, 2, 1], [x, y - 1, 1, 0], [x + 1, y, 2, 10]]
-      if (isWall(x, y + 1) && isWall(x + 1, y) && isFloor(x - 1, y)) return [null, [x, y, 2, 1], [x, y - 1, 1, 0], [x - 1, y, 3, 10]]
-      if (isWall(x - 1, y) && isWall(x, y + 1)) return [null, null, [x - 1, y, 3, 10]]
-      if (isWall(x + 1, y) && isWall(x, y + 1)) return [null, null, [x + 1, y, 2, 10]]
-      return [[x, y, 8, 1]]
+      const out = [null, null, null, null]
+      if (isFloor(x, y - 1) || isFloor(x, y + 1)) { out[1] = [x, y, 2, 1]; out[2] = [x, y - 1, 2, 0] }
+      if (isFloor(x - 1, y) && !isFloor(x, y + 1)) out[3] = [x - 1, y, 3, 10]
+      if (isFloor(x + 1, y) && !isFloor(x, y + 1)) out[3] = [x + 1, y, 2, 10]
+      if (isWall(x, y + 1) && isWall(x - 1, y) && isFloor(x - 1, y + 1)) out[3] = [x - 1, y, 3, 10]
+      if (isWall(x, y + 1) && isWall(x + 1, y) && isFloor(x + 1, y + 1)) out[3] = [x + 1, y, 2, 10]
+      return out
 
     case 2: return [[x, y, 1, 4]];   // Floor
     case 3: col = 2; row = 2; break;  // Door (same as floor)
@@ -584,7 +585,8 @@ function render() {
   for (const layer of autotileCoords) {
     for (const tile of layer) {
       const [tx, ty, col, row] = tile
-      const t = gT(tx, ty); if (!t) continue;
+      const t = gT(tx, ty);
+      // if (!t) continue;
       const tint = t === TD ? .85 : 1;
       const uv = {
         u1: col / cols,
