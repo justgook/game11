@@ -453,10 +453,8 @@ function prepareTiles(levelWidth, levelHeight, tileData) {
       results.push(...tiles);
       // Store first tile in lookup map (for now; later we might need multiple layers)
       if (tiles.length > 0) {
-        // for (const tile of tiles) {
         const [tileX, tileY, col, row] = tiles[0];
         tileAtlasMap[tileY][tileX] = { col, row };
-        // }
       }
     }
   }
