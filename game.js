@@ -310,94 +310,116 @@ function getAnimNameFromState(state) {
 }
 
 // Get sprite data for entity (player or enemy)
-function getSprite(entity, isPlayer) {
-  const texture = 'atlas'; // Always use atlas for now
+function getSprite(entity, isPlayer, dt, gt) {
+  const texture = 'atlas';
   const atlasCols = 32, atlasRows = 16;
   const w = 16, h = 32;
+
+  // --- ensure anim state exists ---
+  if (!entity.anim) {
+    entity.anim = { t: 0, f: 0, spd: 0, st: null };
+  }
 
   let col = 0, row = 0;
   let r = 1, g = 1, b = 1;
 
+  function doAnim(ANIMS) {
+    const def = ANIMS[entity.st] || ANIMS.idle;
+    const anim = entity.anim;
+
+    // --- reset animation on state change ---
+    if (anim.st !== entity.st || anim.spd !== def.fps) {
+      anim.st = entity.st;
+      anim.spd = def.fps;
+      anim.t = 0;
+      anim.f = 0;
+    }
+
+    // --- advance animation ---
+    anim.t += dt;
+    const frameTime = 1 / anim.spd;
+    while (anim.t >= frameTime) {
+      anim.t -= frameTime;
+      anim.f = (anim.f + 1) % def.frames;
+    }
+
+    col = def.col + anim.f;
+    row = def.row;
+    return [col, row]
+  }
+  // ===============================
+  // PLAYER
+  // ===============================
   if (isPlayer) {
-    // Player sprite selection 
-    // col = 9; row = 5;
-    col = 1; row = 1;
+    doAnim({
+      idle: { row: 5, col: 9, frames: 4, fps: 4 },
+      walk: { row: 5, col: 13, frames: 4, fps: 8 },
+    })
 
-    // State-based tint
+    // --- state-based tint ---
     const tints = {
-      idle: [0.5, 1.0, 1.0],   // cyan
-      walk: [0.8, 1.0, 0.8],   // light green
-      dash: [1.0, 1.0, 1.0],   // white
-      shoot: [1.0, 1.0, 0.7],   // yellow
-      slash: [1.0, 0.7, 0.5]    // orange
+      idle: [0.5, 1.0, 1.0],
+      walk: [0.8, 1.0, 0.8],
+      dash: [1.0, 1.0, 1.0],
+      shoot: [1.0, 1.0, 0.7],
+      slash: [1.0, 0.7, 0.5],
     };
-    const tint = tints[entity.st] || tints.idle;
-    [r, g, b] = tint;
 
-    // Hit flash (invulnerable)
+    [r, g, b] = tints[entity.st] || tints.idle;
+
+    // --- hit flash ---
     if (entity.inv > 0 && Math.sin(gt * 30) > 0) {
       r = g = b = 2.0;
     }
 
-    return [
-      {
-        texture,
-        u1: 9 / atlasCols, v1: 5 / atlasRows,
-        u2: (9 + 1) / atlasCols, v2: (5 + 1) / atlasRows,
-        r, g, b, a: 1,
-        w, h,
-        x: -w + ENTITY_SIZE * 0.5, y: h - ENTITY_SIZE * 0.5,
-      },
-      // {
-      //   texture,
-      //   u1: col / atlasCols, v1: row / atlasRows,
-      //   u2: (col + 1) / atlasCols, v2: (row + 1) / atlasRows,
-      //   r, g, b, a: 1,
-      //   w: ENTITY_SIZE, h: ENTITY_SIZE,
-      //   x: -ENTITY_SIZE * 0.5, y: ENTITY_SIZE * 0.5,
-      // },
-    ]
-  } else {
-    // Enemy sprite selection
-    const enemyTiles = {
-      grunt: [9, 3],  // column 1, row 0
-      heavy: [9, 7],  // column 2, row 0
-      scout: [9, 9]   // column 3, row 0
-    };
-    [col, row] = enemyTiles[entity.type] || [0, 1];
+    return [{
+      texture,
+      u1: col / atlasCols,
+      v1: row / atlasRows,
+      u2: (col + 1) / atlasCols,
+      v2: (row + 1) / atlasRows,
+      r, g, b, a: 1,
+      w, h,
+      x: -w + ENTITY_SIZE * 0.5,
+      y: h - ENTITY_SIZE * 0.5,
+    }];
+  }
 
-    // Type-based base tint
-    const baseTints = {
-      grunt: [0.9, 0.2, 0.2],   // red
-      heavy: [0.7, 0.2, 0.2],   // dark red  
-      scout: [1.0, 0.6, 0.2]    // orange
-    };
-    [r, g, b] = baseTints[entity.type] || [1, 0, 0];
+  // ===============================
+  // ENEMY
+  // ===============================
+  const enemyTiles = {
+    grunt: [9, 3],
+    heavy: [9, 7],
+    scout: [9, 9],
+  };
+  [col, row] = enemyTiles[entity.type] || [0, 1];
+  doAnim({
+    idle: { row, col, frames: 4, fps: 4 },
+    walk: { row, col: col + 4, frames: 4, fps: 8 },
+    chase: { row, col: col + 4, frames: 4, fps: 8 },
+    patrol: { row, col: col + 4, frames: 4, fps: 8 },
+    return: { row, col: col + 4, frames: 4, fps: 8 },
+  })
 
-    // State modulation
-    if (entity.as === 'walk') {
-      r *= 1.2; g *= 1.2; b *= 1.2;
-    }
-    if (entity.st === 'chase') {
-      r *= 1.3; // brighter when chasing
-    }
+  const baseTints = {
+    grunt: [0.9, 0.2, 0.2],
+    heavy: [0.7, 0.2, 0.2],
+    scout: [1.0, 0.6, 0.2],
+  };
+  [r, g, b] = baseTints[entity.type] || [1, 0, 0];
 
-    // Hit flash
-    if (entity.hf > 0) {
-      r *= 3; g *= 0.5; b *= 0.5;
-    }
+  if (entity.as === 'walk') {
+    r *= 1.2; g *= 1.2; b *= 1.2;
+  }
+  if (entity.st === 'chase') {
+    r *= 1.3;
+  }
+  if (entity.hf > 0) {
+    r *= 3; g *= 0.5; b *= 0.5;
   }
 
   return [
-    {
-      texture,
-      u1: col / atlasCols, v1: row / atlasRows,
-      u2: (col + 1) / atlasCols, v2: (row + 1) / atlasRows,
-      r, g, b, a: 1,
-      // w: 16, h: 32,
-      w: ENTITY_SIZE, h: ENTITY_SIZE,
-      x: -ENTITY_SIZE * 0.5, y: ENTITY_SIZE * 0.5,
-    },
     {
       texture,
       u1: col / atlasCols, v1: row / atlasRows,
@@ -467,8 +489,9 @@ function prepareTiles(levelWidth, levelHeight, tileData) {
       if (tileType === 0) continue;
       getTile(x, y, getTeleType).forEach((x, i) => {
         if (!x) return
-        if (!results[i]) results[i] = []
-        results[i].push(x);
+        if (!results[i]) results[i] = new Map()
+
+        results[i].set(`${x}_${y}`, x)
       })
     }
   }
@@ -665,82 +688,12 @@ function update(dt) {
   updCam(P.x + shX, P.y + shY);
 }
 
+
 // RENDER
-function render() {
-  if (texLoaded < TOTAL_TEX) { gl.clearColor(.05, .04, .06, 1); gl.clear(gl.COLOR_BUFFER_BIT); return; }
-  gl.clearColor(.03, .02, .04, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-  beginP(prog, loc, false);
-  // Tiles
-  setTx(tex.atlas);
-  const cols = ATLAS_COLS, rows = ATLAS_ROWS;
-  for (const layer of autotileCoords) {
-    for (const tile of layer) {
-      const [tx, ty, col, row] = tile
-      const t = gT(tx, ty);
-      // if (!t) continue;
-      const tint = t === TD ? .85 : 1;
-      const uv = {
-        u1: col / cols,
-        v1: row / rows,
-        u2: (col + 1) / cols,
-        v2: (row + 1) / rows
-      };
-      pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, tint, tint, tint, 1);
-
-    }
-  }
-  // for (let ty = mnY; ty <= mxY; ty++)for (let tx = mnX; tx <= mxX; tx++) {
-  //   const t = gT(tx, ty); if (!t) continue;
-  //
-  //   // Draw floor under obstacles, crates, barrels
-  //   if (t === TO || t === TC || t === TB) {
-  //     const floorUV = getTileUV(2, tx, ty); // Use floor tile with variation based on floorVar & 1
-  //     pTQ(tx * T, ty * T, T, T, floorUV.u1, floorUV.v1, floorUV.u2, floorUV.v2, 1, 1, 1, 1);
-  //   }
-  //
-  //   // Get UV for the tile itself
-  //   const uv = getTileUV(t, tx, ty);
-  //   const tint = t === TD ? .85 : 1;
-  //   pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, tint, tint, tint, 1);
-  // }
-
-  // Pickups
-  setTx(tex.items);
-  for (const p of pickups) {
-    if (!p.active) continue; const bob = Math.sin(gt * 3) * 2, pl = .9 + Math.sin(gt * 5) * .1;
-    const uv = iUV(p.type === 'health' ? 0 : 1, 0); pTQ(p.x - 10, p.y - 10 + bob, 20, 20, uv.u1, uv.v1, uv.u2, uv.v2, pl, pl, pl, 1);
-  }
-
-  // Particles
-  setTx(null); for (const p of particles) pQ(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz, p.r, p.g, p.b, p.l / p.ml);
-
-  // Enemies
-  for (const e of enemies) {
-    if (!e.alive) continue;
-    const sprites = getSprite(e, false)
-    setTx(tex[sprites[0].texture])
-    for (let i = 0; i < sprites.length; i++) {
-      const sprite = sprites[i]
-      pTQ(e.x + sprite.x, e.y - sprite.y, sprite.w, sprite.h,
-        sprite.u1, sprite.v1, sprite.u2, sprite.v2,
-        sprite.r, sprite.g, sprite.b, sprite.a)
-    }
-    setTx(null);
-    pQ(e.x - 12, e.y - 20, 24, 4, .15, .1, .1, .8);
-    pQ(e.x - 12, e.y - 20, 24 * Math.max(0, e.hp / e.mhp), 4, .8, .15, .1, .9);
-    if (e.st === 'chase') pQ(e.x - 2, e.y - 24, 4, 4, 1, .2, .1, .9);
-  }
-
-  // Bullets
-  setTx(tex.items);
-  for (const b of bul) { const uv = iUV(0, 1); pTQ(b.x - 5, b.y - 5, 10, 10, uv.u1, uv.v1, uv.u2, uv.v2, 1, 1, 1, 1); }
-  for (const b of ebul) { const uv = iUV(1, 1); pTQ(b.x - 5, b.y - 5, 10, 10, uv.u1, uv.v1, uv.u2, uv.v2, 1, 1, 1, 1); }
-  if (mFlash.a) { const uv = iUV(2, 1); pTQ(mFlash.x - 10, mFlash.y - 10, 20, 20, uv.u1, uv.v1, uv.u2, uv.v2, 1, 1, 1, .9); }
-
+function renderPlayer(dt) {
   // Player
   if (P.alive) {
-    const sprites = getSprite(P, true)
+    const sprites = getSprite(P, true, dt, gt)
     setTx(tex[sprites[0].texture])
     for (let i = 0; i < sprites.length; i++) {
       const sprite = sprites[i]
@@ -756,6 +709,81 @@ function render() {
       pQ(P.x + Math.cos(sa) * 26 - 4, P.y + Math.sin(sa) * 26 - 4, 8, 8, .8, .85, .95, .8);
     }
   }
+}
+
+function renderBullets() {
+  setTx(tex.items);
+  for (const b of bul) { const uv = iUV(0, 1); pTQ(b.x - 5, b.y - 5, 10, 10, uv.u1, uv.v1, uv.u2, uv.v2, 1, 1, 1, 1); }
+  for (const b of ebul) { const uv = iUV(1, 1); pTQ(b.x - 5, b.y - 5, 10, 10, uv.u1, uv.v1, uv.u2, uv.v2, 1, 1, 1, 1); }
+  if (mFlash.a) { const uv = iUV(2, 1); pTQ(mFlash.x - 10, mFlash.y - 10, 20, 20, uv.u1, uv.v1, uv.u2, uv.v2, 1, 1, 1, .9); }
+
+
+}
+
+function renderPickups() {
+  setTx(tex.items);
+  for (const p of pickups) {
+    if (!p.active) continue; const bob = Math.sin(gt * 3) * 2, pl = .9 + Math.sin(gt * 5) * .1;
+    const uv = iUV(p.type === 'health' ? 0 : 1, 0); pTQ(p.x - 10, p.y - 10 + bob, 20, 20, uv.u1, uv.v1, uv.u2, uv.v2, pl, pl, pl, 1);
+  }
+}
+
+function renderParticles() {
+  setTx(null); for (const p of particles) pQ(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz, p.r, p.g, p.b, p.l / p.ml);
+}
+function renderEnemies(dt) {
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const sprites = getSprite(e, false, dt, gt)
+    setTx(tex[sprites[0].texture])
+    for (let i = 0; i < sprites.length; i++) {
+      const sprite = sprites[i]
+      pTQ(e.x + sprite.x, e.y - sprite.y, sprite.w, sprite.h,
+        sprite.u1, sprite.v1, sprite.u2, sprite.v2,
+        sprite.r, sprite.g, sprite.b, sprite.a)
+    }
+    setTx(null);
+    pQ(e.x - 12, e.y - 20, 24, 4, .15, .1, .1, .8);
+    pQ(e.x - 12, e.y - 20, 24 * Math.max(0, e.hp / e.mhp), 4, .8, .15, .1, .9);
+    if (e.st === 'chase') pQ(e.x - 2, e.y - 24, 4, 4, 1, .2, .1, .9);
+  }
+
+}
+
+function render(dt) {
+  if (texLoaded < TOTAL_TEX) { gl.clearColor(.05, .04, .06, 1); gl.clear(gl.COLOR_BUFFER_BIT); return; }
+  gl.clearColor(.03, .02, .04, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  beginP(prog, loc, false);
+  // Tiles
+  setTx(tex.atlas);
+  const cols = ATLAS_COLS, rows = ATLAS_ROWS;
+  // for (const layer of autotileCoords) {
+  for (let i = 0; i < autotileCoords.length; i++) {
+    if (i === 2) {
+      renderEnemies(dt)
+      renderPlayer(dt)
+      setTx(tex.atlas);
+
+    }
+    for (const [, tile] of autotileCoords[i]) {
+      const [tx, ty, col, row] = tile
+      const t = gT(tx, ty);
+      const tint = t === TD ? .85 : 1;
+      const uv = {
+        u1: col / cols,
+        v1: row / rows,
+        u2: (col + 1) / cols,
+        v2: (row + 1) / rows
+      };
+      pTQ(tx * T, ty * T, T, T, uv.u1, uv.v1, uv.u2, uv.v2, tint, tint, tint, 1);
+    }
+  }
+
+  renderBullets(dt)
+  renderPickups(dt)
+  renderParticles(dt)
+
   endP();
 
   // HUD
@@ -816,7 +844,7 @@ function renderText() {
   ctx.textAlign = 'left';
 }
 
-function loop(now) { const dt = Math.min((now - lastT) / 1000, .05); lastT = now; update(dt); render(); requestAnimationFrame(loop); }
+function loop(now) { const dt = Math.min((now - lastT) / 1000, .05); lastT = now; update(dt); render(dt); requestAnimationFrame(loop); }
 
 // Initialize the game
 (async () => {
